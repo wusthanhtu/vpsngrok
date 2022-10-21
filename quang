@@ -1,0 +1,128 @@
+Viblo
+Avatar
+Dark Lotus @X-Cotang
+ 217  7  2
+Đã đăng vào thg 4 5, 3:44 CH  3 phút đọc
+2.1K
+Được rồi, đi thôi!!! VPS free nè (^.^) [P1]
+Bạn là sinh viên, bạn là lập trình viên khó khăn về mặt tài chính, bạn không có xiền thuê VPS, không sao hết, đừng lo lắng🥵😵!!! Hôm nay mình sẽ hướng dẫn cho các bạn cách tạo VPS free bằng Github Workflow & Ngrok 😬 😬 😬 . Bài viết này là bài viết đầu tay của mình và mở đầu chuỗi seri bài viết về chủ đề tạo VPS free cho mọi nhà. Được rồi 😁 đi thôi !!! 👉
+
+Lý thuyết (TLDR)
+Mình xin phép tóm tắt nhanh phần lí thuyết cho những bạn nào chưa biết 😅:
+
+GitHub Actions
+Tài liệu: https://docs.github.com/en/actions
+
+GitHub Actions is a continuous integration and continuous delivery (CI/CD) platform that allows you to automate your build, test, and deployment pipeline. You can create workflows that build and test every pull request to your repository, or deploy merged pull requests to production.
+
+GitHub Actions goes beyond just DevOps and lets you run workflows when other events happen in your repository. For example, you can run a workflow to automatically add the appropriate labels whenever someone creates a new issue in your repository.
+
+GitHub provides Linux, Windows, and macOS virtual machines to run your workflows, or you can host your own self-hosted runners in your own data center or cloud infrastructure.
+
+Chúng ta có thể hiểu đơn giản GitHub Actions là một event-driven nghĩa là chương trình chạy một loạt jobs (các dòng lệnh) khi nhận được 1 event. Trong jobs phân chia thành nhiều step khác nhau và sắp xếp các step để chạy
+Ví dụ:
+
+
+Workflow trên sẽ thực thi các job khi được nhận event workflowdispatch (người dùng run workflow theo cách thủ công từ Actions tab) .
+
+Ngork
+Ngrok là công cụ tạo đường hầm (tunnel) giữa localhost của bạn và internet hay nói một cách đơn giản nó là công cụ giúp public cổng trên máy bạn ra ngoài internet.
+Với công cụ này chúng ta có thể public các cổng như 3389,22 từ local để có thể thực hiện remote máy tính từ xa Link download: https://ngrok.com/download
+
+Thực hành
+Tạo tài khoản
+Github: Nếu bạn đã có tài khoản thì mình khuyến cáo bạn nên tạo tài khoản mới để tránh tài khoản cũ bị ban.
+Link đăng kí: https://github.com/signup
+
+Ngrok: Thực hiện tạo tài khoản ngrok và lưu lại token
+Link đăng kí: https://dashboard.ngrok.com/signup
+
+Tạo repo
+Thực hiện tạo một repo private
+
+
+Tạo action
+Chuyển qua tab Actions và chọn "Configure" Simple workflow
+
+
+Thực hiện sủa nội dung blank.yml như sau:
+Đối với VPS window
+
+name: Window
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: download ngrok
+        shell: powershell
+        run: |
+          Invoke-WebRequest https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-windows-amd64.zip -OutFile ngrok.zip
+          Expand-Archive ngrok.zip
+      - name: run ngrok
+        shell: powershell
+        run: |
+          .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
+          Start-Process Powershell -ArgumentList '-Noexit -Command ".\ngrok\ngrok.exe tcp 3389"'
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          
+      - name: Activating RDP access.
+        run: | 
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+        
+      - name: Change pass for RDP.
+        env: 
+          ADMINPASSWORD: ${{ secrets.ADMINPASSWORD }}
+        run: net user runneradmin $Env:ADMINPASSWORD
+        
+      - name: Get Ngrok 
+        run: Invoke-WebRequest http://localhost:4040/api/tunnels
+        
+      - name: Run loop
+        run: ping -t localhost
+
+Đối với VPS ubuntu:
+
+name: VPS
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: update and upgrade
+        run: sudo apt-get update -y && sudo apt-get upgrade -y
+      - name: install ngrok
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null && echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list && sudo apt update && sudo apt install ngrok
+          
+      - name: Run sshd
+        run: sudo service sshd start
+        
+      - name: Change pass
+        run: yes superpass | sudo passwd
+        
+      - name: add user
+        run: |
+          sudo useradd -m superuser
+          yes superpass | sudo passwd superuser
+          sudo usermod -aG sudo superuser
+
+      - name: Run ngrok
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: |
+          ngrok authtoken $NGROK_AUTH_TOKEN
+          ngrok tcp 22 &
+      - name: Get Ngrok
+        run: curl http://localhost:4040/api/tunnels
+
+      - name: run loop
+        run: tail -f /dev/null
